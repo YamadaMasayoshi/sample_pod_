@@ -1,19 +1,14 @@
-import 'package:sample_pod_client/sample_pod_client.dart';
 import 'package:flutter/material.dart';
+import 'package:sample_pod_client/sample_pod_client.dart';
 import 'package:serverpod_flutter/serverpod_flutter.dart';
 
 import 'dart:io';
 
 bool isIOS = Platform.isIOS;
 
-// Sets up a singleton client object that can be used to talk to the server from
-// anywhere in our app. The client is generated from your server code.
-// The client is set up to connect to a Serverpod running on a local server on
-// the default port. You will need to modify this to connect to staging or
-// production servers.
-
 var client =
-    isIOS ? Client('http://localhost:8080/') : Client('http://10.0.2.2:8080/');
+    isIOS ? Client('http://localhost:8080/') : Client('http://10.0.2.2:8080/')
+      ..connectivityMonitor = FlutterConnectivityMonitor();
 
 void main() {
   runApp(const MyApp());
@@ -25,7 +20,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Serverpod Demo',
+      title: 'todo pod',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
@@ -44,22 +39,72 @@ class MyHomePage extends StatefulWidget {
 }
 
 class MyHomePageState extends State<MyHomePage> {
-  // These fields hold the last result or error message that we've received from
-  // the server or null if no result exists yet.
-  String? _resultMessage;
-  String? _errorMessage;
+  String _errorMessage = '';
+  List<Todo> todos = [];
+  int? selectedTodoId;
 
   final _textEditingController = TextEditingController();
 
-  // Calls the `hello` method of the `example` endpoint. Will set either the
-  // `_resultMessage` or `_errorMessage` field, depending on if the call
-  // is successful.
-  void _callHello() async {
+  @override
+  void initState() {
+    super.initState();
+    getAllTodo();
+  }
+
+  Future<void> getAllTodo() async {
     try {
-      final result = await client.example.hello(_textEditingController.text);
+      final res = await client.todo.getAllTodos();
       setState(() {
-        _resultMessage = result;
+        todos = [...res];
       });
+    } catch (e) {
+      setState(() {
+        _errorMessage = '$e';
+      });
+    }
+  }
+
+  Future<void> addTask() async {
+    try {
+      await client.todo.addTodo(
+        todo: Todo(
+          name: _textEditingController.text,
+          isDone: false,
+        ),
+      );
+
+      await getAllTodo();
+    } catch (e) {
+      setState(() {
+        _errorMessage = '$e';
+      });
+    }
+  }
+
+  Future<void> updateTodo(Todo todo) async {
+    try {
+      await client.todo.updateTodo(
+        todo: Todo(
+          id: todo.id,
+          name: todo.name,
+          isDone: !todo.isDone,
+        ),
+      );
+      await getAllTodo();
+    } catch (e) {
+      setState(() {
+        _errorMessage = '$e';
+      });
+    }
+  }
+
+  Future<void> deleteTodo(int id) async {
+    try {
+      await client.todo.deleteTodo(id: id);
+      setState(() {
+        selectedTodoId = null;
+      });
+      await getAllTodo();
     } catch (e) {
       setState(() {
         _errorMessage = '$e';
@@ -86,55 +131,64 @@ class MyHomePageState extends State<MyHomePage> {
                 ),
               ),
             ),
+            if (_errorMessage.isNotEmpty)
+              Text(
+                _errorMessage,
+                style: const TextStyle(color: Colors.red),
+              ),
             Padding(
               padding: const EdgeInsets.only(bottom: 16.0),
               child: ElevatedButton(
-                onPressed: _callHello,
-                child: const Text('Send to Server'),
+                onPressed: addTask,
+                child: const Text('新しいタスクを作成'),
               ),
             ),
-            _ResultDisplay(
-              resultMessage: _resultMessage,
-              errorMessage: _errorMessage,
+            Flexible(
+              child: ListView.builder(
+                itemCount: todos.length,
+                itemBuilder: (context, i) {
+                  final todo = todos[i];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      onTap: () {
+                        setState(() {
+                          selectedTodoId = todo.id;
+                        });
+                      },
+                      title: Text(todo.name),
+                      tileColor: Colors.white70,
+                      selected: todo.id == selectedTodoId,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: const BorderSide(color: Colors.black12),
+                      ),
+                      trailing: IconButton(
+                        onPressed: () {
+                          updateTodo(todo);
+                        },
+                        icon: Icon(
+                          Icons.check_box,
+                          color: todo.isDone ? Colors.blue : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
+            if (selectedTodoId != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: ElevatedButton(
+                  onPressed: () {
+                    deleteTodo(selectedTodoId!);
+                  },
+                  child: const Text('タスクの削除'),
+                ),
+              ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-// _ResultDisplays shows the result of the call. Either the returned result from
-// the `example.hello` endpoint method or an error message.
-class _ResultDisplay extends StatelessWidget {
-  final String? resultMessage;
-  final String? errorMessage;
-
-  const _ResultDisplay({
-    this.resultMessage,
-    this.errorMessage,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    String text;
-    Color backgroundColor;
-    if (errorMessage != null) {
-      backgroundColor = Colors.red[300]!;
-      text = errorMessage!;
-    } else if (resultMessage != null) {
-      backgroundColor = Colors.green[300]!;
-      text = resultMessage!;
-    } else {
-      backgroundColor = Colors.grey[300]!;
-      text = 'No server response yet.';
-    }
-
-    return Container(
-      height: 50,
-      color: backgroundColor,
-      child: Center(
-        child: Text(text),
       ),
     );
   }
